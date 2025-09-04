@@ -1,0 +1,30 @@
+include README.md
+include README_zh.md
+recursive-include docs *
+include LICENSE
+include requirements.txt
+include pyproject.toml
+
+# 包含示例文件
+recursive-include examples *.py
+
+# 包含配置脚本
+recursive-include scripts *.py
+
+# 包含测试文件
+recursive-include tests *.py
+
+# 包含配置文件
+include *.json *.yaml *.yml
+
+# 包含项目资源
+recursive-include assets *
+
+# 排除不需要的文件
+exclude README_old.md
+exclude temp_*
+global-exclude *.pyc
+global-exclude __pycache__/*
+global-exclude .DS_Store
+global-exclude *.tmp
+recursive-exclude operator_extracts * 

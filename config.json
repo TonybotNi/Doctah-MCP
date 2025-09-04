@@ -1,0 +1,40 @@
+{
+  "_comment": "Claude Desktop MCP配置文件示例",
+  "_instructions": [
+    "将此文件复制到Claude Desktop配置目录:",
+    "macOS: ~/Library/Application Support/Claude/claude_desktop_config.json",
+    "Windows: %APPDATA%\\Claude\\claude_desktop_config.json",
+    "Linux: ~/.config/Claude/claude_desktop_config.json",
+    "配置完成后重启Claude Desktop应用"
+  ],
+  "mcpServers": {
+    "doctah-mcp": {
+      "command": "doctah-mcp",
+      "args": [],
+      "env": {
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  },
+  "_alternatives": {
+    "_comment": "其他配置方式参考",
+    "如果使用虚拟环境": {
+      "command": "/path/to/your/venv/bin/doctah-mcp",
+      "args": []
+    },
+    "如果使用Python模块": {
+      "command": "python",
+      "args": ["-m", "doctah_mcp.server"],
+      "env": {
+        "PYTHONPATH": "."
+      }
+    },
+    "如果需要调试": {
+      "command": "doctah-mcp",
+      "args": [],
+      "env": {
+        "LOG_LEVEL": "DEBUG"
+      }
+    }
+  }
+} 
