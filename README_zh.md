@@ -30,7 +30,7 @@ Doctah-MCP 通过 Model Context Protocol (MCP) 为 AI 模型提供明日方舟 P
 ### 通过源码安装
 
 ```bash
-git clone https://github.com/mudrobot/doctah-mcp.git
+git clone https://github.com/TonybotNi/Doctah-MCP.git
 cd doctah-mcp
 pip install -e .
 ```
@@ -48,7 +48,7 @@ python -m doctah_mcp.server --help
 
 ```bash
 # 克隆仓库
-git clone https://github.com/mudrobot/doctah-mcp.git
+git clone https://github.com/TonybotNi/Doctah-MCP.git
 cd doctah-mcp
 
 # 安装开发依赖
@@ -226,6 +226,6 @@ Made with ❤️ for Arknights community
 
 ## GitHub Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=mudrobot/doctah-mcp&type=Date)](https://star-history.com/#mudrobot/doctah-mcp&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=tonybotni/doctah-mcp&type=Date)](https://star-history.com/#tonybotni/doctah-mcp&Date)
 
 </div> 

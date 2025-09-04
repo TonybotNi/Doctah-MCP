@@ -30,7 +30,7 @@ The Doctah-MCP Server provides a bridge between AI assistants and PRTS.wiki's Ar
 ### Install from Source
 
 ```bash
-git clone https://github.com/mudrobot/doctah-mcp.git
+git clone https://github.com/TonybotNi/Doctah-MCP.git
 cd doctah-mcp
 pip install -e .
 ```
@@ -48,7 +48,7 @@ For development:
 
 ```bash
 # Clone and set up development environment
-git clone https://github.com/mudrobot/doctah-mcp.git
+git clone https://github.com/TonybotNi/Doctah-MCP.git
 cd doctah-mcp
 
 # Install with test dependencies
@@ -226,6 +226,6 @@ Made with ❤️ for Arknights community
 
 ## GitHub Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=mudrobot/doctah-mcp&type=Date)](https://star-history.com/#mudrobot/doctah-mcp&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=tonybotni/doctah-mcp&type=Date)](https://star-history.com/#tonybotni/doctah-mcp&Date)
 
 </div> 
