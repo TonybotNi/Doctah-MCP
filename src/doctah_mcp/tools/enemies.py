@@ -146,6 +146,135 @@ async def search_enemy(name: str, sections: Optional[str] = None, wiki_client: O
             await wiki_client.close()
 
 
+async def list_enemies_advanced(
+    keyword: Optional[str] = None,
+    enemy_level: Optional[str] = None,
+    enemy_race: Optional[str] = None,
+    attack_type: Optional[str] = None,
+    damage_type: Optional[str] = None,
+    endure: Optional[str] = None,
+    attack: Optional[str] = None,
+    defence: Optional[str] = None,
+    move_speed: Optional[str] = None,
+    attack_speed: Optional[str] = None,
+    resistance: Optional[str] = None,
+    limit: int = 200,
+    wiki_client: Optional[PRTSWikiClient] = None,
+) -> str:
+    """
+    敌人多维度筛选（参考 PRTS『敌人一览』）
+    - 维度：地位(enemyLevel)/种类(enemyRace)/攻击方式(attackType)/伤害类型(damageType)
+    - 六维：生命值(endure)/攻击(attack)/防御(defence)/移动速度(moveSpeed)/攻击速度(attackSpeed)/法术抗性(resistance)
+    参数均支持逗号/顿号/空格分隔的多值。
+    """
+    def parse_multi(v: Optional[str]) -> set[str]:
+        if not v:
+            return set()
+        for s in [',', '，', '、', '|', ' ']:
+            v = v.replace(s, ',')
+        return set(x.strip() for x in v.split(',') if x.strip())
+
+    def match_contains(val: str, need: set[str]) -> bool:
+        if not need:
+            return True
+        return any(n in (val or '') for n in need)
+
+    # 解析条件
+    cond = {
+        'enemyLevel': parse_multi(enemy_level),
+        'enemyRace': parse_multi(enemy_race),
+        'attackType': parse_multi(attack_type),
+        'damageType': parse_multi(damage_type),
+        'endure': parse_multi(endure),
+        'attack': parse_multi(attack),
+        'defence': parse_multi(defence),
+        'moveSpeed': parse_multi(move_speed),
+        'attackSpeed': parse_multi(attack_speed),
+        'resistance': parse_multi(resistance),
+    }
+
+    if not any([keyword] + [bool(v) for v in cond.values()]):
+        return (
+            "# ❌ 敌人多维筛选失败\n\n"
+            "- **状态**: 缺少筛选条件\n"
+            "- **错误类型**: EMPTY_FILTERS\n\n"
+            "请至少提供一个条件，如 enemy_level=精英 或 attack_type=远程。\n"
+        )
+
+    # 准备客户端
+    client_provided = wiki_client is not None
+    if not wiki_client:
+        wiki_client = PRTSWikiClient()
+
+    try:
+        data = await wiki_client.get_enemy_filter_data()
+        if not data:
+            return "# ❌ 敌人多维筛选失败\n\n- **状态**: 未获取到数据"
+
+        # 过滤
+        items = []
+        for row in data:
+            name = row.get('name','')
+            if keyword and keyword not in name and keyword not in (row.get('ability','') or ''):
+                continue
+            ok = True
+            for k, needs in cond.items():
+                if not needs:
+                    continue
+                v = str(row.get(k, ''))
+                # 六维是单值严格匹配；基本筛选用包含匹配
+                if k in ['endure','attack','defence','moveSpeed','attackSpeed','resistance']:
+                    if v not in needs:
+                        ok = False; break
+                else:
+                    if not match_contains(v, needs):
+                        ok = False; break
+            if not ok:
+                continue
+            items.append({
+                'name': name,
+                'url': row.get('url'),
+                'enemyLevel': row.get('enemyLevel',''),
+                'enemyRace': row.get('enemyRace',''),
+                'attackType': row.get('attackType',''),
+                'damageType': row.get('damageType',''),
+                'endure': row.get('endure',''),
+                'attack': row.get('attack',''),
+                'defence': row.get('defence',''),
+                'moveSpeed': row.get('moveSpeed',''),
+                'attackSpeed': row.get('attackSpeed',''),
+                'resistance': row.get('resistance',''),
+            })
+
+        # 排序：地位(领袖>精英>普通) > 名称
+        rank = {'领袖':3,'精英':2,'普通':1}
+        items.sort(key=lambda x: (-rank.get(x['enemyLevel'],0), x['name']))
+
+        if not items:
+            return "# 🔍 敌人多维筛选\n\n- **匹配数量**: 0"
+
+        lines = [
+            "# 🔎 敌人多维筛选结果\n",
+            "## 📊 统计",
+            f"- **候选数据**: {len(data)}",
+            f"- **匹配敌人**: {len(items)}",
+            "\n## 📋 敌人列表",
+        ]
+        for i,e in enumerate(items[:limit],1):
+            meta = ' / '.join([v for v in [e['enemyLevel'], e['enemyRace'], e['attackType'], e['damageType']] if v])
+            lines.append(f"{i:2d}. **{e['name']}**（{meta}）")
+            if e.get('url'):
+                lines.append(f"   链接: {e['url']}")
+        lines.append("\n---\n数据来源: 敌人一览/数据")
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"# ❌ 敌人多维筛选错误\n\n- **错误信息**: {e}"
+    finally:
+        if not client_provided:
+            await wiki_client.close()
+
+
 async def list_enemies(name: str, wiki_client: Optional[PRTSWikiClient] = None) -> str:
     """
     搜索相关敌人并返回敌人名称列表

@@ -417,6 +417,66 @@ class PRTSWikiClient:
         """详细解析干员信息（保持向后兼容）"""
         return await self.parse_operator_complete(title)
 
+    async def get_operator_filter_data(self) -> List[Dict[str, Any]]:
+        """解析 PRTS『干员一览』隐藏节点(#filter-data)中的干员筛选数据。
+
+        返回的每个条目包含常见字段：
+        zh, en, ja, profession, branch, rarity, position, gender, obtain,
+        tags, logo(势力), team, birth_place, race, url
+        """
+        html = await self.get_page_html('干员一览')
+        if not html:
+            return []
+        soup = BeautifulSoup(html, 'html.parser')
+        filter_div = soup.find(id='filter-data')
+        if not filter_div:
+            return []
+        operators: List[Dict[str, Any]] = []
+        for div in filter_div.find_all('div'):
+            attrs = {}
+            for k, v in div.attrs.items():
+                if not k.startswith('data-'):
+                    continue
+                key = k[5:]
+                # 部分属性可能为 None
+                if v is None:
+                    continue
+                attrs[key] = v
+            if not attrs:
+                continue
+            name_zh = attrs.get('zh') or attrs.get('name')
+            if name_zh:
+                attrs['url'] = f"{BASE_URL}/w/{quote(name_zh)}"
+            operators.append(attrs)
+        return operators
+
+    async def get_enemy_filter_data(self) -> List[Dict[str, Any]]:
+        """获取 PRTS『敌人一览/数据』JSON 列表。
+
+        返回的每个条目通常包含：
+        name, enemyLink, enemyRace, enemyLevel, attackType, damageType,
+        endure, attack, defence, moveSpeed, attackSpeed, resistance, ability 等。
+        """
+        try:
+            params = {
+                "title": "敌人一览/数据",
+                "action": "raw",
+                "ctype": "application/json",
+            }
+            url = f"{BASE_URL}/index.php"
+            resp = await self.session.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            # 增补直达链接
+            for item in data:
+                link = item.get("enemyLink") or item.get("name")
+                if link:
+                    item["url"] = f"{BASE_URL}/w/{quote(link)}"
+            return data
+        except Exception as e:
+            logger.error(f"获取敌人筛选数据失败: {e}")
+            return []
+
     def _extract_basic_info(self, soup: BeautifulSoup, operator_data: Dict):
         """提取基本信息"""
         basic_info = {}
@@ -431,19 +491,40 @@ class PRTSWikiClient:
                     value = self.extract_text_from_cell(cells[1])
                     
                     if key and value:
-                        # 标准化字段名
-                        if '再部署' in key or '部署时间' in key:
+                        # 统一键名（做宽松匹配，避免页面差异）
+                        key_norm = key.replace('：', '').replace(':', '').strip()
+                        
+                        def contains_any(text: str, keywords: list[str]) -> bool:
+                            return any(k in text for k in keywords)
+                        
+                        if contains_any(key_norm, ['再部署', '部署时间']):
                             basic_info['再部署时间'] = value
-                        elif '阻挡' in key:
+                        elif '阻挡' in key_norm:
                             basic_info['阻挡数'] = value
-                        elif '所属势力' in key and '隐藏' not in key:
+                        elif contains_any(key_norm, ['所属势力', '势力', '组织', '阵营']) and '隐藏' not in key_norm:
                             basic_info['所属势力'] = value
-                        elif '隐藏势力' in key:
+                        elif '隐藏势力' in key_norm:
                             basic_info['隐藏势力仅在战斗中所使用的数据'] = value
-                        elif '攻击间隔' in key:
+                        elif '攻击间隔' in key_norm:
                             basic_info['攻击间隔'] = value
-                        elif '部署费用' in key:
+                        elif '部署费用' in key_norm:
                             basic_info['部署费用'] = value
+                        elif contains_any(key_norm, ['职业', '职能']) and '分支' not in key_norm:
+                            basic_info['职业'] = value
+                        elif '分支' in key_norm or contains_any(key_norm, ['子职业', '子职']):
+                            basic_info['分支'] = value
+                        elif '位置' in key_norm:
+                            basic_info['位置'] = value
+                        elif '性别' in key_norm:
+                            basic_info['性别'] = value
+                        elif contains_any(key_norm, ['出身地', '籍贯']):
+                            basic_info['出身地'] = value
+                        elif '种族' in key_norm:
+                            basic_info['种族'] = value
+                        elif contains_any(key_norm, ['标签', '词缀']):
+                            basic_info['标签'] = value
+                        elif contains_any(key_norm, ['获得方式', '获取方式', '获取途径']):
+                            basic_info['获得方式'] = value
         
         operator_data['basic_info'] = basic_info
 

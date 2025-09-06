@@ -466,4 +466,278 @@ AI模型可以根据此列表，使用 `search_operator()` 函数逐一查询每
             await wiki_client.close()
 
 
+async def list_operators_advanced(
+    keyword: Optional[str] = None,
+    professions: Optional[str] = None,
+    branches: Optional[str] = None,
+    rarities: Optional[str] = None,
+    positions: Optional[str] = None,
+    genders: Optional[str] = None,
+    obtains: Optional[str] = None,
+    tags: Optional[str] = None,
+    factions: Optional[str] = None,
+    birthplaces: Optional[str] = None,
+    races: Optional[str] = None,
+    limit: int = 200,
+    wiki_client: Optional[PRTSWikiClient] = None,
+) -> str:
+    """
+    按多维条件筛选干员并返回列表。
+
+    所有字符串参数均为以逗号/顿号分隔的多值，例如：
+    professions="医疗,术师"  rarities="6,5"  tags="治疗,群攻"。
+    """
+    # 预处理参数
+    def parse_multi(value: Optional[str]) -> set[str]:
+        if not value:
+            return set()
+        seps = [',', '，', '、', '|', ' ']
+        temp = value
+        for s in seps:
+            temp = temp.replace(s, ',')
+        items = [x.strip() for x in temp.split(',') if x.strip()]
+        return set(items)
+
+    def normalize_text(s: str) -> str:
+        return s.replace('：', ':').replace('（', '(').replace('）', ')').strip()
+
+    def normalize_rarity_set(values: set[str]) -> set[str]:
+        mapped = set()
+        for v in values:
+            v = v.replace('★', '').replace('星', '').replace('稀有度', '').strip()
+            for ch in ['一','二','三','四','五','六']:
+                pass
+            cn_map = {'一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6'}
+            if v in cn_map:
+                v = cn_map[v]
+            if v.isdigit():
+                mapped.add(v)
+        return mapped
+
+    professions_set = parse_multi(professions)
+    branches_set = parse_multi(branches)
+    rarities_set = normalize_rarity_set(parse_multi(rarities))
+    positions_set = parse_multi(positions)
+    genders_set = parse_multi(genders)
+    obtains_set = parse_multi(obtains)
+    tags_set = parse_multi(tags)
+    factions_set = parse_multi(factions)
+    birthplaces_set = parse_multi(birthplaces)
+    races_set = parse_multi(races)
+
+    # 如果没有任何条件且没有关键词，则返回提示
+    if not any([
+        keyword, professions_set, branches_set, rarities_set, positions_set,
+        genders_set, obtains_set, tags_set, factions_set, birthplaces_set, races_set
+    ]):
+        return (
+            "# ❌ 干员多维筛选失败\n\n"
+            "- **状态**: 缺少筛选条件\n"
+            "- **错误类型**: EMPTY_FILTERS\n\n"
+            "请至少提供一个条件，如 professions=医疗 或 tags=治疗。\n"
+        )
+
+    # 创建或复用客户端
+    client_provided = wiki_client is not None
+    if not wiki_client:
+        wiki_client = PRTSWikiClient()
+
+    try:
+        # 1) 首选使用『干员一览』页面内置的数据（#filter-data）
+        filter_data = await wiki_client.get_operator_filter_data()
+        filtered: list[dict] = []
+
+        def match_contains(value: str, need: set[str]) -> bool:
+            if not need:
+                return True
+            if value is None:
+                return False
+            v = normalize_text(str(value))
+            return any(n in v for n in need)
+
+        def match_rarity(value: str) -> bool:
+            if not rarities_set:
+                return True
+            v = (value or '').replace('★','').strip()
+            return v in rarities_set
+
+        for row in filter_data:
+            name = row.get('zh') or row.get('name')
+            if not name:
+                continue
+            if keyword and (keyword not in name):
+                continue
+            # 字段同义与标准化
+            branch_val = row.get('branch') or row.get('subprofession') or ''
+            gender_val = row.get('gender') or row.get('sex') or ''
+            obtain_val = row.get('obtain') or row.get('obtain_method') or ''
+            tags_val = row.get('tags') or row.get('tag') or ''
+            faction_val = row.get('logo') or row.get('group') or row.get('nation') or ''
+            rarity_raw = (row.get('rarity') or '').strip()
+            rarity_star = ''
+            if rarity_raw.isdigit():
+                try:
+                    rarity_star = str(int(rarity_raw) + 1)
+                except Exception:
+                    rarity_star = rarity_raw
+            else:
+                rarity_star = rarity_raw
+            if not (match_contains(row.get('profession',''), professions_set) and
+                    match_contains(branch_val, branches_set) and
+                    ((not rarities_set) or rarity_star in rarities_set) and
+                    match_contains(row.get('position',''), positions_set) and
+                    match_contains(gender_val, genders_set) and
+                    match_contains(obtain_val, obtains_set) and
+                    match_contains(tags_val, tags_set) and
+                    match_contains(faction_val, factions_set) and
+                    match_contains(row.get('birth_place',''), birthplaces_set) and
+                    match_contains(row.get('race',''), races_set)):
+                continue
+            filtered.append({
+                'title': name,
+                'profession': row.get('profession'),
+                'branch': branch_val,
+                'rarity': rarity_star,
+                'position': row.get('position'),
+                'gender': gender_val,
+                'obtain': obtain_val,
+                'tags': tags_val,
+                'faction': faction_val,
+                'birthplace': row.get('birth_place'),
+                'race': row.get('race'),
+                'url': row.get('url'),
+            })
+
+        # 2) 若 filter-data 不可用或结果为空，回退到逐页验证的旧策略
+        candidates = [{'title': f.get('title')} for f in filtered] if filtered else []
+        if not filtered:
+            # 构造简单查询扩大覆盖
+            search_terms = set([keyword] if keyword else [])
+            for s in [professions_set, branches_set, tags_set, factions_set]:
+                search_terms.update(s)
+            if not search_terms:
+                search_terms.add('干员')
+            seen = set()
+            for term in search_terms:
+                for res in await wiki_client.search_pages(f"{term} 干员", limit=50):
+                    t = res['title']
+                    if any(x in t for x in ['/','：','列表','一览']):
+                        continue
+                    if t in seen:
+                        continue
+                    candidates.append({'title': t})
+                    seen.add(t)
+
+            # 验证候选并抽取字段
+            semaphore = asyncio.Semaphore(8)
+            async def verify(title: str):
+                async with semaphore:
+                    if not await wiki_client._verify_operator_page(title):
+                        return None
+                    data = await wiki_client.parse_operator_complete(title)
+                    return data
+            pages = await asyncio.gather(*(verify(c['title']) for c in candidates))
+            for data in filter(None, pages):
+                profession = data.get('profession','')
+                rarity_text = data.get('rarity','')
+                import re as _re
+                m = _re.search(r'(\d+)', rarity_text or '')
+                rarity_num = m.group(1) if m else ''
+                basic = data.get('basic_info',{}) or {}
+                row = {
+                    'title': data.get('name'),
+                    'profession': profession,
+                    'branch': basic.get('分支',''),
+                    'rarity': rarity_num or rarity_text,
+                    'position': basic.get('位置',''),
+                    'gender': basic.get('性别',''),
+                    'obtain': basic.get('获得方式',''),
+                    'tags': ' '.join([basic.get('标签',''), basic.get('词缀','')]).strip(),
+                    'faction': basic.get('所属势力',''),
+                    'birthplace': basic.get('出身地',''),
+                    'race': basic.get('种族',''),
+                    'url': data.get('url')
+                }
+                def ok():
+                    return (
+                        match_contains(row['profession'], professions_set) and
+                        match_contains(row['branch'], branches_set) and
+                        ((not rarities_set) or str(row['rarity']).replace('★','') in rarities_set) and
+                        match_contains(row['position'], positions_set) and
+                        match_contains(row['gender'], genders_set) and
+                        match_contains(row['obtain'], obtains_set) and
+                        match_contains(row['tags'], tags_set) and
+                        match_contains(row['faction'], factions_set) and
+                        match_contains(row['birthplace'], birthplaces_set) and
+                        match_contains(row['race'], races_set)
+                    )
+                if ok():
+                    filtered.append(row)
+ 
+        if not filtered:
+            conds = []
+            if professions_set: conds.append(f"职业={','.join(professions_set)}")
+            if branches_set: conds.append(f"分支={','.join(branches_set)}")
+            if rarities_set: conds.append(f"稀有度={','.join(sorted(rarities_set))}")
+            if positions_set: conds.append(f"位置={','.join(positions_set)}")
+            if genders_set: conds.append(f"性别={','.join(genders_set)}")
+            if obtains_set: conds.append(f"获得方式={','.join(obtains_set)}")
+            if tags_set: conds.append(f"标签={','.join(tags_set)}")
+            if factions_set: conds.append(f"势力={','.join(factions_set)}")
+            if birthplaces_set: conds.append(f"出身地={','.join(birthplaces_set)}")
+            if races_set: conds.append(f"种族={','.join(races_set)}")
+            return (
+                "# 🔍 干员多维筛选\n\n"
+                f"- **匹配数量**: 0\n- **条件**: {'; '.join(conds) if conds else '无'}\n"
+                "- 如需更精准结果，可减少条件或放宽关键词。\n"
+            )
+
+        # 排序：默认按稀有度降序，再按职业、名称
+        def sort_key(item: dict):
+            try:
+                r = int(str(item.get('rarity') or 0).replace('★',''))
+            except Exception:
+                r = 0
+            return (-r, item.get('profession', ''), item.get('title', ''))
+        filtered.sort(key=sort_key)
+
+        # 输出格式
+        lines = [
+            "# 🔎 干员多维筛选结果",
+            "",
+            "## 📊 统计",
+            f"- **候选数据**: {len(filter_data) if 'filter_data' in locals() and filter_data else 0}",
+            f"- **匹配干员**: {len(filtered)}",
+        ]
+        if keyword:
+            lines.append(f"- **关键词**: {keyword}")
+
+        lines.append("\n## 📋 干员列表")
+        for idx, op in enumerate(filtered[:limit], 1):
+            parts = [f"{idx:2d}. **{op['title']}**"]
+            meta = []
+            if op.get('rarity'): meta.append(f"{op['rarity']}★")
+            if op.get('profession'): meta.append(op['profession'])
+            if op.get('branch'): meta.append(op['branch'])
+            if meta:
+                parts.append(f"（{' / '.join(meta)}）")
+            if op.get('tags'):
+                parts.append(f" - {op['tags']}")
+            if op.get('url'):
+                parts.append(f"\n   链接: {op['url']}")
+            lines.append(''.join(parts))
+
+        lines.append("\n---\n数据来源: https://prts.wiki/w/干员一览")
+        return "\n".join(lines)
+
+    except Exception as e:
+        return (
+            "# ❌ 干员多维筛选错误\n\n"
+            f"- **错误信息**: {str(e)}\n"
+        )
+    finally:
+        if not client_provided:
+            await wiki_client.close() 
+
+
  
